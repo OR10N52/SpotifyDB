@@ -1,23 +1,29 @@
 package com.example.spotifydb;
 
 import android.content.ContentValues;
+import android.content.Context;
+import android.content.SharedPreferences;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.View;
 import android.widget.ArrayAdapter;
 import android.widget.EditText;
 import android.widget.ListView;
+import android.widget.TextView;
+import android.widget.Toast;
 
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 
 import java.util.ArrayList;
 
-public class mainActivity extends AppCompatActivity {
+public class MainActivity extends AppCompatActivity {
 
-    public EditText warning;
+    private TextView warning;
     private ListView listView;
-    private ArrayList<String> canciones; // Lista donde guardamos los datos
+    private ArrayList<String> canciones;
     private ArrayAdapter<String> adapter;
 
     @Override
@@ -26,184 +32,142 @@ public class mainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
 
         listView = findViewById(R.id.listView);
+        warning = findViewById(R.id.message);
         canciones = new ArrayList<>();
-        adapter = new ArrayAdapter<>(this, android.R.layout.simple_list_item_1, canciones);
+        adapter = new ArrayAdapter<>(this, R.layout.item, canciones);
         listView.setAdapter(adapter);
+
+        ejecutarUnaVez(this);
+        consultar();
+
+        listView.setOnItemClickListener((parent, view, position, id) -> {
+            String selectedSong = canciones.get(position);
+            showDeleteDialog(selectedSong, position);
+        });
     }
 
-    public void consultar(View view) {
-        canciones.clear(); // Limpiar lista antes de cargar nuevos datos
-        DataBase admin = new DataBase(this, "Link", null, 1);
-        SQLiteDatabase datab = admin.getReadableDatabase();
+    private void showDeleteDialog(String song, int position) {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle("Eliminar Canción")
+                .setMessage("¿Estás seguro de que quieres eliminar \"" + song + "\"?")
+                .setPositiveButton("Sí", (dialog, which) -> BorrarCancion(position))
+                .setNegativeButton("No", (dialog, which) -> dialog.dismiss())
+                .show();
+    }
 
-        Cursor cursor = datab.rawQuery("SELECT titulo, artista, duracion FROM playlist", null);
+    private void BorrarCancion(int position) {
+        String song = canciones.get(position);
+        String title = song.split(" - ")[0];
 
-        if (cursor.moveToFirst()) {
-            do {
-                String titulo = cursor.getString(0);
-                String artista = cursor.getString(1);
-                int duracion = cursor.getInt(2);
-
-                String song = titulo + " - " + artista + " (" + (duracion / 60) + "m " + (duracion % 60) + "s)";
-                canciones.add(song);
-            } while (cursor.moveToNext());
+        try (SQLiteDatabase datab = new DataBase(this, "Link", null, 1).getWritableDatabase()) {
+            datab.delete("playlist", "titulo = ?", new String[]{title});
         }
 
-        cursor.close();
-        datab.close();
+        warning.setText("Cancion eliminada");
+        consultar();
+        warning.postDelayed(() -> warning.setText(""), 2000);
 
-        adapter.notifyDataSetChanged(); // Refrescar ListView con los nuevos datos
+        Toast.makeText(this, "Canción eliminada correctamente", Toast.LENGTH_SHORT).show();
     }
 
-    public void borrar(View view){
-        DataBase admin = new DataBase(mainActivity.this, "Link", null, 1);
-        SQLiteDatabase datab = admin.getReadableDatabase();
-        datab.execSQL("Delete from playlist");
+    public void consultar() {
+        canciones.clear();
 
-        warning = findViewById(R.id.message);
+        try (SQLiteDatabase datab = new DataBase(this, "Link", null, 1).getReadableDatabase();
+             Cursor cursor = datab.rawQuery("SELECT titulo, artista, duracion FROM playlist", null)) {
+
+            if (cursor.moveToFirst()) {
+                do {
+                    String titulo = cursor.getString(0);
+                    String artista = cursor.getString(1);
+                    int duracion = cursor.getInt(2);
+                    canciones.add(titulo + " - " + artista + " (" + (duracion / 60) + "m " + (duracion % 60) + "s)");
+                } while (cursor.moveToNext());
+            }
+        }
+
+        adapter.notifyDataSetChanged();
+    }
+
+    public void borrarTodos(View view) {
+        try (SQLiteDatabase datab = new DataBase(this, "Link", null, 1).getWritableDatabase()) {
+            datab.execSQL("DELETE FROM playlist");
+        }
+
+        consultar();
         warning.setText("Playlist borrada");
+        warning.postDelayed(() -> warning.setText(""), 2000);
     }
-    public void insertar(View view){
 
-        DataBase admin = new DataBase(mainActivity.this, "Link", null, 1);
+    public void insertar(View view) {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle("Ingresar Contenido");
 
-        SQLiteDatabase datab = admin.getReadableDatabase();
-        ContentValues log = new ContentValues();
+        View dialogView = getLayoutInflater().inflate(R.layout.dialog_layout, null);
+        builder.setView(dialogView);
 
-        log.put("titulo","BIRDS OF A FEATHER");
-        log.put("artista","Billie Eilish");
-        log.put("duracion",210);
-        log.put("imagen","hmhas");
-        datab.insert("playlist",null, log);
+        EditText editTextTitulo = dialogView.findViewById(R.id.editTextTitulo);
+        EditText editTextContenido = dialogView.findViewById(R.id.editTextContenido);
+        EditText editTextDuracion = dialogView.findViewById(R.id.editTextDuracion);
 
-        log.put("titulo","THE GREATEST");
-        log.put("artista","BIllie Eilish");
-        log.put("duracion",293);
-        log.put("imagen","hmhas");
-        datab.insert("playlist",null, log);
+        builder.setPositiveButton("Guardar", (dialog, which) -> {
+            String titulo = editTextTitulo.getText().toString();
+            String contenido = editTextContenido.getText().toString();
+            String duracion = editTextDuracion.getText().toString();
 
-        log.put("titulo","Starfucker");
-        log.put("artista","FINNEAS");
-        log.put("duracion",217);
-        log.put("imagen","fcol");
-        datab.insert("playlist",null, log);
+            if (titulo.isEmpty() || contenido.isEmpty() || duracion.isEmpty()) {
+                warning.setText("Complete todos los campos");
+            } else {
+                try (SQLiteDatabase datab = new DataBase(this, "Link", null, 1).getWritableDatabase()) {
+                    ContentValues values = new ContentValues();
+                    values.put("titulo", titulo);
+                    values.put("artista", contenido);
+                    values.put("duracion", duracion);
+                    values.put("imagen", "fcol");
+                    datab.insert("playlist", null, values);
+                }
+                warning.setText("Cancion agregada");
+            }
 
-        log.put("titulo","Lotus Eater");
-        log.put("artista","FINNEAS");
-        log.put("duracion",231);
-        log.put("imagen","fcol");
-        datab.insert("playlist",null, log);
+            consultar();
+            warning.postDelayed(() -> warning.setText(""), 2000);
+        });
 
-        log.put("titulo","For Cryin' Out Loud!");
-        log.put("artista","FINNEAS");
-        log.put("duracion",217);
-        log.put("imagen","fcol");
-        datab.insert("playlist",null, log);
+        builder.setNegativeButton("Cancelar", (dialog, which) -> dialog.dismiss());
+        builder.show();
+    }
 
-        log.put("titulo","Peaches Etude");
-        log.put("artista","FINNEAS");
-        log.put("duracion",135);
-        log.put("imagen","optimist");
-        datab.insert("playlist",null, log);
+    public void ejecutarUnaVez(Context context) {
+        SharedPreferences prefs = context.getSharedPreferences("MisPreferencias", Context.MODE_PRIVATE);
+        if (!prefs.getBoolean("metodoEjecutado", false)) {
 
-        log.put("titulo","Only A Lifetime");
-        log.put("artista","FINNEAS");
-        log.put("duracion",256);
-        log.put("imagen","optimist");
-        datab.insert("playlist",null, log);
+            try (SQLiteDatabase datab = new DataBase(this, "Link", null, 1).getWritableDatabase()) {
+                String[][] cancionesIniciales = {
+                        {"BIRDS OF A FEATHER", "Billie Eilish", "210", "hmhas"},
+                        {"THE GREATEST", "Billie Eilish", "293", "hmhas"},
+                        {"Starfucker", "FINNEAS", "217", "fcol"},
+                        {"Lotus Eater", "FINNEAS", "231", "fcol"},
+                        {"Peaches Etude", "FINNEAS", "135", "optimist"},
+                        {"Only A Lifetime", "FINNEAS", "256", "optimist"},
+                        {"Happier Than Ever", "Billie Eilish", "298", "hte"},
+                        {"Fine Line", "Harry Styles", "377", "fineline"},
+                        {"Golden", "Harry Styles", "208", "fineline"},
+                        {"Falling", "Harry Styles", "240", "fineline"}
+                };
+                for (String[] song : cancionesIniciales) {
+                    ContentValues values = new ContentValues();
+                    values.put("titulo", song[0]);
+                    values.put("artista", song[1]);
+                    values.put("duracion", Integer.parseInt(song[2]));
+                    values.put("imagen", song[3]);
+                    datab.insert("playlist", null, values);
+                }
+            }
 
-        log.put("titulo","Happier Than Ever");
-        log.put("artista","Billie Eilish");
-        log.put("duracion",298);
-        log.put("imagen","hte");
-        datab.insert("playlist",null, log);
-
-        log.put("titulo","Fine Line");
-        log.put("artista","Harry Styles");
-        log.put("duracion",377);
-        log.put("imagen","fineline");
-        datab.insert("playlist",null, log);
-
-        log.put("titulo","Golden");
-        log.put("artista","Harry Styles");
-        log.put("duracion",208);
-        log.put("imagen","fineline");
-        datab.insert("playlist",null, log);
-
-        log.put("titulo","Falling");
-        log.put("artista","Harry Styles");
-        log.put("duracion",240);
-        log.put("imagen","fineline");
-        datab.insert("playlist",null, log);
-
-        log.put("titulo","Bon Jovi");
-        log.put("artista","I'll Be There For You");
-        log.put("duracion",346);
-        log.put("imagen","bonjovi");
-        datab.insert("playlist",null, log);
-
-        log.put("titulo","Every Breath You Take");
-        log.put("artista","The Police");
-        log.put("duracion",253);
-        log.put("imagen","police");
-        datab.insert("playlist",null, log);
-
-        log.put("titulo","Help!");
-        log.put("artista","The Beatles");
-        log.put("duracion",139);
-        log.put("imagen","help");
-        datab.insert("playlist",null, log);
-
-        log.put("titulo","You're Going To Lose That Girl");
-        log.put("artista","The Beatles");
-        log.put("duracion",138);
-        log.put("imagen","help");
-        datab.insert("playlist",null, log);
-
-        log.put("titulo","Ticket To Ride");
-        log.put("artista","The Beatles");
-        log.put("duracion",189);
-        log.put("imagen","help");
-        datab.insert("playlist",null, log);
-
-        log.put("titulo","A Hard Day's Night");
-        log.put("artista","The Beatles");
-        log.put("duracion",154);
-        log.put("imagen","help");
-        datab.insert("playlist",null, log);
-
-        log.put("titulo","Can't Buy Me Love");
-        log.put("artista","The Beatles");
-        log.put("duracion",131);
-        log.put("imagen","help");
-        datab.insert("playlist",null, log);
-
-        log.put("titulo","Circles");
-        log.put("artista","Post Malone");
-        log.put("duracion",215);
-        log.put("imagen","hollywood");
-        datab.insert("playlist",null, log);
-
-        log.put("titulo","Internet");
-        log.put("artista","Post Malone");
-        log.put("duracion",123);
-        log.put("imagen","hollywood");
-        datab.insert("playlist",null, log);
-
-        log.put("titulo","The Emptiness Machine");
-        log.put("artista","Linkin Park");
-        log.put("duracion",190);
-        log.put("imagen","linkinpark");
-        datab.insert("playlist",null, log);
-
-        log.put("titulo","Best Song Ever");
-        log.put("artista","One Direction");
-        log.put("duracion",200);
-        log.put("imagen","midnight");
-        datab.insert("playlist",null, log);
-
-        warning = findViewById(R.id.message);
-        warning.setText("Playlist cargada");
-
+            warning.setText("Playlist cargada");
+            consultar();
+            warning.postDelayed(() -> warning.setText(""), 2000);
+            prefs.edit().putBoolean("metodoEjecutado", true).apply();
+        }
     }
 }

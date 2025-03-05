@@ -16,7 +16,8 @@
             android:name=".mainActivity"
             android:exported="true"
             android:label="@string/app_name"
-            android:theme="@style/Theme.SpotifyDB">
+            android:theme="@style/Theme.SpotifyDB"
+            tools:ignore="MissingClass">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 
